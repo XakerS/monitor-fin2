@@ -1,50 +1,9 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchMonitors } from './services/sheetsParser';
 import { Monitor, ParseResult, Rating, RATING_CONFIG } from './types';
-
-/* ───── Utility functions ───── */
-
-function trimUrlTrailingJunk(url: string): string {
-  let u = url.trim();
-  u = u.replace(/[.,;:'»]+$/u, '');
-  for (let k = 0; k < 8 && u.length > 0; k++) {
-    const last = u[u.length - 1];
-    const opens = (u.match(/\(/g) || []).length;
-    const closes = (u.match(/\)/g) || []).length;
-    if (last === ')' && closes > opens) u = u.slice(0, -1);
-    else if (/^[)\]"'»]$/.test(last)) u = u.slice(0, -1);
-    else break;
-  }
-  return u;
-}
-
-function extractLinks(text: string): { label: string; url: string }[] {
-  const links: { label: string; url: string }[] = [];
-  const urlRegex = /https?:\/\/\S+/g;
-  let match;
-  while ((match = urlRegex.exec(text)) !== null) {
-    let url = trimUrlTrailingJunk(match[0]);
-    if (!/^https?:\/\//i.test(url)) continue;
-    const before = text.substring(Math.max(0, match.index - 100), match.index);
-    let label = '';
-    const obzor = before.match(/(?:^|[\s,;])(Обзор)\s*[-–—:]?\s*$/i);
-    if (obzor) label = 'Обзор';
-    if (!label) {
-      const labelMatch = before.match(/(?:\d+\)\s*)?([А-Яа-яёЁA-Za-z0-9\s.+:]+?)\s*[-–—:]?\s*$/);
-      label = labelMatch ? labelMatch[1].trim() : '';
-    }
-    links.push({ label: label || `Ссылка ${links.length + 1}`, url });
-  }
-  return links;
-}
-
-function cleanComment(text: string): string {
-  return text
-    .replace(/https?:\/\/\S+/g, '')
-    .replace(/\d+\)\s*[-–—:]?\s*/g, ' ')
-    .replace(/\s{2,}/g, ' ')
-    .trim();
-}
+import { cleanComment, extractLinks } from './utils/commentLinks';
+import { ozonSearchUrl, wildberriesSearchUrl, yandexMarketSearchUrl } from './utils/marketplaceUrls';
+import { bestIndicesForRow, type CompareRowId } from './utils/compareHighlights';
 
 /* ───── Sub-components ───── */
 
@@ -106,7 +65,8 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
     F: 'rgba(127,29,29,0.15)',
   };
 
-  const hasDetails = monitor.panel || commentText || links.length > 0 || (monitor.overdrive && monitor.overdrive !== '?') || (monitor.gtg100 && monitor.gtg100 !== '?');
+  /* Подробнее всегда: кнопки Ozon / WB / Я.Маркет + опционально текст и ссылки */
+  const hasDetails = true;
 
   return (
     <div style={{
@@ -247,11 +207,11 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
               )}
               {links.length > 0 && (
                 <div>
-                  <span style={{ color: '#6b7280' }}>Ссылки:</span>
+                  <span style={{ color: '#6b7280' }}>Ссылки из комментария:</span>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
                     {links.map((l, i) => (
                       <a
-                        key={i}
+                        key={`${l.url}-${i}`}
                         href={l.url}
                         target="_blank"
                         rel="noopener noreferrer"
@@ -260,21 +220,99 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: '4px',
-                          padding: '4px 8px',
-                          borderRadius: '6px',
-                          background: 'rgba(59,130,246,0.1)',
-                          color: '#60a5fa',
-                          border: '1px solid rgba(59,130,246,0.2)',
+                          padding: '6px 10px',
+                          borderRadius: '8px',
+                          background: 'rgba(59,130,246,0.12)',
+                          color: '#93c5fd',
+                          border: '1px solid rgba(59,130,246,0.35)',
                           textDecoration: 'none',
                           fontSize: '11px',
+                          fontWeight: 500,
+                          maxWidth: '100%',
                         }}
+                        title={l.url}
                       >
-                        🔗 {l.label}
+                        {l.label}
                       </a>
                     ))}
                   </div>
                 </div>
               )}
+
+              <div style={{
+                marginTop: '14px',
+                paddingTop: '14px',
+                borderTop: '1px solid rgba(255,255,255,0.08)',
+              }}>
+                <span style={{ color: '#6b7280', fontSize: '11px', display: 'block', marginBottom: '8px' }}>
+                  Поиск по названию
+                </span>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  <a
+                    href={ozonSearchUrl(monitor.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(180deg, rgba(37,99,235,0.35), rgba(29,78,216,0.25))',
+                      color: '#dbeafe',
+                      border: '1px solid rgba(59,130,246,0.5)',
+                      textDecoration: 'none',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Найти на Ozon
+                  </a>
+                  <a
+                    href={wildberriesSearchUrl(monitor.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(180deg, rgba(126,34,206,0.4), rgba(88,28,135,0.3))',
+                      color: '#f3e8ff',
+                      border: '1px solid rgba(168,85,247,0.45)',
+                      textDecoration: 'none',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Найти на Wildberries
+                  </a>
+                  <a
+                    href={yandexMarketSearchUrl(monitor.name)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      padding: '8px 12px',
+                      borderRadius: '8px',
+                      background: 'linear-gradient(180deg, rgba(202,138,4,0.35), rgba(161,98,7,0.28))',
+                      color: '#fef9c3',
+                      border: '1px solid rgba(234,179,8,0.45)',
+                      textDecoration: 'none',
+                      fontSize: '11px',
+                      fontWeight: 600,
+                    }}
+                  >
+                    Найти на Я.Маркет
+                  </a>
+                </div>
+              </div>
             </div>
           )}
         </div>
@@ -317,6 +355,11 @@ function SelectFilter({ label, value, onChange, options }: {
   );
 }
 
+const compareBorderColors: Record<Rating, string> = {
+  S: '#d97706', A: '#10b981', B: '#06b6d4', C: '#6b7280',
+  D: '#ca8a04', E: '#4b5563', F: '#dc2626',
+};
+
 function ComparePanel({
   monitors,
   onClear,
@@ -326,24 +369,57 @@ function ComparePanel({
 }) {
   if (monitors.length < 2) return null;
 
-  const rows: { label: string; values: string[] }[] = [
-    { label: 'Оценка', values: monitors.map((m) => `${RATING_CONFIG[m.rating].emoji} ${m.rating}`) },
-    { label: 'Класс', values: monitors.map((m) => m.resolutionCategory) },
-    { label: 'Разрешение', values: monitors.map((m) => m.resolution) },
-    { label: 'Диагональ', values: monitors.map((m) => (m.diagonal ? `${m.diagonal}"` : '—')) },
-    { label: 'Панель', values: monitors.map((m) => m.panel || '—') },
-    { label: 'Матрица', values: monitors.map((m) => m.matrixType || '—') },
-    { label: 'Гц', values: monitors.map((m) => (m.refreshRate ? `${m.refreshRate}` : '—')) },
-    { label: 'Контраст', values: monitors.map((m) => m.contrast || '—') },
-    { label: 'GtG 80%', values: monitors.map((m) => m.gtg80 || '—') },
-    { label: 'GtG 100%', values: monitors.map((m) => m.gtg100 || '—') },
-    { label: 'Overdrive', values: monitors.map((m) => m.overdrive || '—') },
-    { label: 'sRGB', values: monitors.map((m) => m.srgb || '—') },
-    { label: 'Adobe', values: monitors.map((m) => m.adobe || '—') },
-    { label: 'DCI-P3', values: monitors.map((m) => m.dciP3 || '—') },
-    { label: 'Ярк. мин', values: monitors.map((m) => m.minBrightness || '—') },
-    { label: 'Ярк. макс', values: monitors.map((m) => m.maxBrightness || '—') },
+  const rowDefs: { label: string; rowId: CompareRowId | null; values: string[] }[] = [
+    {
+      label: 'Оценка',
+      rowId: 'rating',
+      values: monitors.map((m) => `${RATING_CONFIG[m.rating].emoji} ${m.rating}`),
+    },
+    { label: 'Класс разрешения', rowId: null, values: monitors.map((m) => m.resolutionCategory) },
+    { label: 'Разрешение', rowId: null, values: monitors.map((m) => m.resolution) },
+    {
+      label: 'Диагональ',
+      rowId: null,
+      values: monitors.map((m) => (m.diagonal ? `${m.diagonal}"` : '—')),
+    },
+    { label: 'Панель', rowId: null, values: monitors.map((m) => m.panel || '—') },
+    { label: 'Матрица', rowId: null, values: monitors.map((m) => m.matrixType || '—') },
+    {
+      label: 'Частота',
+      rowId: 'hz',
+      values: monitors.map((m) => (m.refreshRate ? `${m.refreshRate} Гц` : '—')),
+    },
+    { label: 'Контраст', rowId: 'contrast', values: monitors.map((m) => m.contrast || '—') },
+    { label: 'GtG 80%', rowId: 'gtg80', values: monitors.map((m) => m.gtg80 || '—') },
+    { label: 'GtG 100%', rowId: 'gtg100', values: monitors.map((m) => m.gtg100 || '—') },
+    { label: 'Overdrive', rowId: null, values: monitors.map((m) => m.overdrive || '—') },
+    { label: 'sRGB', rowId: 'srgb', values: monitors.map((m) => m.srgb || '—') },
+    { label: 'Adobe RGB', rowId: 'adobe', values: monitors.map((m) => m.adobe || '—') },
+    { label: 'DCI-P3', rowId: 'dciP3', values: monitors.map((m) => m.dciP3 || '—') },
+    { label: 'Яркость мин.', rowId: 'minBrightness', values: monitors.map((m) => m.minBrightness || '—') },
+    { label: 'Яркость макс.', rowId: 'maxBrightness', values: monitors.map((m) => m.maxBrightness || '—') },
   ];
+
+  const highlightSets = useMemo(() => {
+    const map = new Map<string, Set<number>>();
+    const pairs: { label: string; rowId: CompareRowId }[] = [
+      { label: 'Оценка', rowId: 'rating' },
+      { label: 'Частота', rowId: 'hz' },
+      { label: 'Контраст', rowId: 'contrast' },
+      { label: 'GtG 80%', rowId: 'gtg80' },
+      { label: 'GtG 100%', rowId: 'gtg100' },
+      { label: 'sRGB', rowId: 'srgb' },
+      { label: 'Adobe RGB', rowId: 'adobe' },
+      { label: 'DCI-P3', rowId: 'dciP3' },
+      { label: 'Яркость мин.', rowId: 'minBrightness' },
+      { label: 'Яркость макс.', rowId: 'maxBrightness' },
+    ];
+    for (const { label, rowId } of pairs) {
+      const best = bestIndicesForRow(monitors, rowId);
+      if (best) map.set(label, best);
+    }
+    return map;
+  }, [monitors]);
 
   return (
     <div
@@ -353,62 +429,78 @@ function ComparePanel({
         left: 0,
         right: 0,
         zIndex: 100,
-        maxHeight: 'min(70vh, 560px)',
-        background: 'rgba(15,23,42,0.97)',
-        borderTop: '1px solid rgba(6,182,212,0.35)',
-        boxShadow: '0 -8px 32px rgba(0,0,0,0.5)',
+        maxHeight: 'min(72vh, 580px)',
+        background: 'linear-gradient(180deg, rgba(15,23,42,0.99) 0%, rgba(3,7,18,0.98) 100%)',
+        borderTop: '1px solid rgba(6,182,212,0.45)',
+        boxShadow: '0 -12px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(6,182,212,0.12)',
         display: 'flex',
         flexDirection: 'column',
+        backdropFilter: 'blur(12px)',
       }}
     >
       <div style={{
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '10px 16px',
+        gap: '12px',
+        padding: '14px 18px',
         borderBottom: '1px solid rgba(255,255,255,0.08)',
         flexShrink: 0,
+        background: 'linear-gradient(90deg, rgba(6,182,212,0.08), transparent 40%)',
       }}>
-        <span style={{ fontSize: '14px', fontWeight: 600, color: '#e5e7eb' }}>
-          Сравнение мониторов ({monitors.length})
-        </span>
+        <div>
+          <span style={{ fontSize: '15px', fontWeight: 700, color: '#f1f5f9', letterSpacing: '-0.02em' }}>
+            Сравнение
+          </span>
+          <span style={{ fontSize: '13px', color: '#64748b', marginLeft: '8px' }}>
+            {monitors.length} моделей
+          </span>
+          <p style={{ margin: '4px 0 0', fontSize: '11px', color: '#64748b' }}>
+            Подсветка: лучшее значение в строке (оценка S→F, Гц и % выше, GtG ниже)
+          </p>
+        </div>
         <button
           type="button"
           onClick={onClear}
           style={{
-            padding: '6px 12px',
+            padding: '8px 14px',
             fontSize: '12px',
-            borderRadius: '8px',
-            border: '1px solid rgba(239,68,68,0.35)',
-            background: 'rgba(239,68,68,0.1)',
-            color: '#f87171',
+            fontWeight: 600,
+            borderRadius: '10px',
+            border: '1px solid rgba(239,68,68,0.4)',
+            background: 'rgba(239,68,68,0.12)',
+            color: '#fca5a5',
             cursor: 'pointer',
           }}
         >
           Очистить
         </button>
       </div>
-      <div style={{ overflow: 'auto', padding: '12px 16px 20px' }}>
+      <div style={{ overflow: 'auto', padding: '14px 16px 24px' }}>
         <table style={{
           width: '100%',
           borderCollapse: 'separate',
           borderSpacing: 0,
           fontSize: '12px',
-          minWidth: `${Math.max(480, monitors.length * 160)}px`,
+          minWidth: `${Math.max(520, monitors.length * 168)}px`,
         }}>
           <thead>
             <tr>
               <th style={{
                 position: 'sticky',
                 left: 0,
-                zIndex: 2,
-                background: '#0f172a',
+                zIndex: 3,
+                background: '#030712',
                 textAlign: 'left',
-                padding: '8px 10px',
-                color: '#6b7280',
+                padding: '12px 12px',
+                color: '#94a3b8',
                 fontWeight: 600,
+                fontSize: '11px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.06em',
                 borderBottom: '1px solid rgba(255,255,255,0.1)',
-                minWidth: '120px',
+                minWidth: '128px',
+                verticalAlign: 'bottom',
               }}>
                 Параметр
               </th>
@@ -416,50 +508,93 @@ function ComparePanel({
                 <th
                   key={m.rowIndex}
                   style={{
-                    padding: '8px 10px',
-                    color: '#f3f4f6',
-                    fontWeight: 600,
+                    padding: '12px 12px',
+                    fontWeight: 700,
                     borderBottom: '1px solid rgba(255,255,255,0.1)',
                     verticalAlign: 'bottom',
-                    maxWidth: '200px',
+                    maxWidth: '220px',
+                    borderLeft: `3px solid ${compareBorderColors[m.rating]}`,
+                    background: 'rgba(17,24,39,0.85)',
+                    borderRadius: '10px 10px 0 0',
                   }}
                 >
-                  <span style={{ display: 'block', lineHeight: 1.35, whiteSpace: 'pre-line' }}>{m.name}</span>
+                  <span style={{
+                    display: 'block',
+                    lineHeight: 1.35,
+                    whiteSpace: 'pre-line',
+                    color: '#f8fafc',
+                    fontSize: '12px',
+                  }}
+                  >
+                    {m.name}
+                  </span>
+                  <span style={{
+                    display: 'inline-block',
+                    marginTop: '6px',
+                    fontSize: '10px',
+                    fontWeight: 600,
+                    color: compareBorderColors[m.rating],
+                  }}>
+                    {RATING_CONFIG[m.rating].emoji} {RATING_CONFIG[m.rating].label}
+                  </span>
                 </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {rows.map((row) => (
-              <tr key={row.label}>
-                <td style={{
-                  position: 'sticky',
-                  left: 0,
-                  zIndex: 1,
-                  background: '#111827',
-                  color: '#9ca3af',
-                  padding: '8px 10px',
-                  borderBottom: '1px solid rgba(255,255,255,0.05)',
-                  fontWeight: 500,
-                }}>
-                  {row.label}
-                </td>
-                {row.values.map((v, i) => (
-                  <td
-                    key={`${row.label}-${i}`}
-                    style={{
-                      color: '#e5e7eb',
-                      padding: '8px 10px',
-                      borderBottom: '1px solid rgba(255,255,255,0.05)',
-                      verticalAlign: 'top',
-                      whiteSpace: 'pre-line',
-                    }}
-                  >
-                    {v}
+            {rowDefs.map((row) => {
+              const best = highlightSets.get(row.label);
+              return (
+                <tr key={row.label}>
+                  <td style={{
+                    position: 'sticky',
+                    left: 0,
+                    zIndex: 2,
+                    background: '#030712',
+                    color: '#94a3b8',
+                    padding: '10px 12px',
+                    borderBottom: '1px solid rgba(255,255,255,0.06)',
+                    fontWeight: 600,
+                    fontSize: '11px',
+                  }}>
+                    {row.label}
                   </td>
-                ))}
-              </tr>
-            ))}
+                  {row.values.map((v, i) => {
+                    const isBest = best?.has(i);
+                    return (
+                      <td
+                        key={`${row.label}-${i}`}
+                        style={{
+                          color: '#e2e8f0',
+                          padding: '10px 12px',
+                          borderBottom: '1px solid rgba(255,255,255,0.06)',
+                          verticalAlign: 'top',
+                          whiteSpace: 'pre-line',
+                          background: isBest
+                            ? 'linear-gradient(135deg, rgba(6,182,212,0.18), rgba(16,185,129,0.08))'
+                            : 'rgba(15,23,42,0.5)',
+                          boxShadow: isBest ? 'inset 0 0 0 1px rgba(34,211,238,0.35)' : 'none',
+                          borderLeft: i === 0 ? undefined : '1px solid rgba(255,255,255,0.04)',
+                        }}
+                      >
+                        {isBest && (
+                          <span style={{
+                            display: 'inline-block',
+                            marginRight: '6px',
+                            fontSize: '10px',
+                            color: '#2dd4bf',
+                            fontWeight: 700,
+                          }}>
+                            ★
+                          </span>
+                        )}
+                        {v}
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

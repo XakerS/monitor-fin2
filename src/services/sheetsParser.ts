@@ -42,10 +42,68 @@ function findRatingColumn(row: string[]): number {
   return -1;
 }
 
-/** Текст ячейки + цель гиперссылки (для «Обзор» и т.п., когда в CSV теряется URL). */
+/** Все HYPERLINK из формулы (в т.ч. локаль с «;»). */
+function extractHyperlinksFromFormula(f: string | undefined): { url: string; label: string }[] {
+  if (!f || !/HYPERLINK/i.test(f)) return [];
+  const results: { url: string; label: string }[] = [];
+  const seen = new Set<string>();
+
+  const patterns = [
+    /HYPERLINK\s*\(\s*"([^"]+)"\s*[,;]\s*"([^"]*)"\s*\)/gi,
+    /HYPERLINK\s*\(\s*'([^']+)'\s*[,;]\s*'([^']*)'\s*\)/gi,
+  ];
+
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(f)) !== null) {
+      const url = m[1].trim();
+      if (url.startsWith('#') || !/^https?:\/\//i.test(url)) continue;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      results.push({ url, label: m[2].trim() });
+    }
+  }
+
+  const oneArg = /HYPERLINK\s*\(\s*"([^"]+)"\s*\)/gi;
+  let m: RegExpExecArray | null;
+  while ((m = oneArg.exec(f)) !== null) {
+    const url = m[1].trim();
+    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
+    seen.add(url);
+    results.push({ url, label: '' });
+  }
+
+  return results;
+}
+
+function extractLinksFromCellHtml(h: string | undefined): { url: string; label: string }[] {
+  if (!h) return [];
+  const out: { url: string; label: string }[] = [];
+  const re = /<a[^>]+href=["'](https?:\/\/[^"']+)["'][^>]*>([^<]*)<\/a>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(h)) !== null) {
+    out.push({
+      url: m[1].trim(),
+      label: m[2].replace(/&nbsp;/gi, ' ').replace(/\s+/g, ' ').trim(),
+    });
+  }
+  return out;
+}
+
+/**
+ * Текст ячейки + гиперссылка из XLSX + HYPERLINK() из формулы + теги <a> из HTML.
+ * Нужно, чтобы в комментарии оказались все URL (в т.ч. несколько «Обзор»).
+ */
 function getCellTextWithHyperlink(ws: XLSX.WorkSheet, r: number, c: number): string {
   const addr = XLSX.utils.encode_cell({ r, c });
-  const cell = ws[addr] as { w?: string; v?: unknown; l?: { Target?: string } } | undefined;
+  const cell = ws[addr] as {
+    w?: string;
+    v?: unknown;
+    l?: { Target?: string };
+    f?: string;
+    h?: string;
+  } | undefined;
   if (!cell) return '';
 
   let text = '';
@@ -54,11 +112,33 @@ function getCellTextWithHyperlink(ws: XLSX.WorkSheet, r: number, c: number): str
 
   const link = typeof cell.l?.Target === 'string' ? cell.l.Target.trim() : '';
 
-  if (!link) return text;
+  let base = '';
+  if (!link) {
+    base = text;
+  } else if (!text || text === link) {
+    base = link;
+  } else if (text.includes(link)) {
+    base = text;
+  } else {
+    base = `${text} ${link}`;
+  }
 
-  if (!text || text === link) return link;
-  if (text.includes(link)) return text;
-  return `${text} ${link}`;
+  for (const { url, label } of extractLinksFromCellHtml(cell.h)) {
+    if (!url || base.includes(url)) continue;
+    const lab = label || 'Обзор';
+    if (lab && base.endsWith(lab)) base = `${base} ${url}`;
+    else base = `${base} ${lab} ${url}`.trim();
+  }
+
+  for (const { url, label } of extractHyperlinksFromFormula(cell.f)) {
+    if (!url || base.includes(url)) continue;
+    const lab = label.trim();
+    if (lab && base.endsWith(lab)) base = `${base} ${url}`;
+    else if (lab) base = `${base} ${lab} ${url}`.trim();
+    else base = `${base} ${url}`.trim();
+  }
+
+  return base.trim();
 }
 
 function sheetToRows(ws: XLSX.WorkSheet): string[][] {
@@ -97,7 +177,7 @@ async function fetchWorksheet(): Promise<{ ws: XLSX.WorkSheet | null; error?: st
         lastErr = 'пустой ответ';
         continue;
       }
-      const wb = XLSX.read(buf, { type: 'array', cellDates: false });
+      const wb = XLSX.read(buf, { type: 'array', cellDates: false, cellFormula: true });
       const sheetName = wb.SheetNames[0];
       if (!sheetName) {
         lastErr = 'нет листов';
