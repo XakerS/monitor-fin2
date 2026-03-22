@@ -1,4 +1,12 @@
-/** Извлечение ссылок из текста комментария + очистка для отображения. */
+/** Разбор комментария: текст + встроенные ссылки (как в таблице). */
+
+export type CommentSegment =
+  | { kind: 'text'; text: string }
+  | { kind: 'link'; label: string; url: string };
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
 
 export function trimUrlTrailingJunk(url: string): string {
   let u = url.trim();
@@ -14,7 +22,7 @@ export function trimUrlTrailingJunk(url: string): string {
   return u;
 }
 
-/** Подпись перед конкретным URL — сегмент текста с прошлого URL до начала этого. */
+/** Подпись перед конкретным URL — фрагмент текста от прошлого URL до начала этого. */
 function extractLabelFromSegment(segment: string): string {
   const t = segment.replace(/\s+$/u, '');
   if (!t) return '';
@@ -40,47 +48,67 @@ function extractLabelFromSegment(segment: string): string {
   return '';
 }
 
-/**
- * Все уникальные http(s) ссылки по порядку появления.
- * Подписи: «Обзор», нумерованные пункты, текст перед «—» и т.д.
- */
-export function extractLinks(text: string): { label: string; url: string }[] {
-  if (!text || !text.trim()) return [];
-  const links: { label: string; url: string }[] = [];
-  const seen = new Set<string>();
+/** Убираем подпись с конца сегмента (чтобы не дублировать её рядом со ссылкой). */
+function stripTrailingLabel(segment: string, label: string): string {
+  const L = label.trim();
+  if (!L) return segment;
+  try {
+    const re = new RegExp(`${escapeRegExp(L)}\\s*$`, 'iu');
+    return segment.replace(re, '').replace(/\s+$/u, '');
+  } catch {
+    return segment;
+  }
+}
 
+/**
+ * Комментарий → чередование текста и ссылок (все URL по порядку, без слияния дубликатов).
+ * Текст ссылки — как в таблице («Обзор» и т.д.), URL не показываем в тексте.
+ */
+export function parseCommentSegments(text: string): CommentSegment[] {
+  if (!text?.trim()) return [];
+
+  const segments: CommentSegment[] = [];
   const urlRegex = /https?:\/\/[^\s<>\u00a0]+/gi;
   let match: RegExpExecArray | null;
   let prevEnd = 0;
-  let linkIndex = 0;
 
   while ((match = urlRegex.exec(text)) !== null) {
     const raw = match[0];
-    let url = trimUrlTrailingJunk(raw);
-    if (!/^https?:\/\//i.test(url)) continue;
+    const url = trimUrlTrailingJunk(raw);
+    if (!/^https?:\/\//i.test(url)) {
+      prevEnd = match.index + raw.length;
+      continue;
+    }
 
-    const segment = text.slice(prevEnd, match.index);
-    let label = extractLabelFromSegment(segment);
+    const segmentBefore = text.slice(prevEnd, match.index);
+    let label = extractLabelFromSegment(segmentBefore);
 
     if (!label) {
-      const before = text.slice(Math.max(0, match.index - 100), match.index);
+      const before = text.slice(Math.max(0, match.index - 140), match.index);
       const obzorOnly = before.match(/(?:^|[\s,;•\n])(Обзор(?:\s*\d+)?)\s*[-–—:]*\s*$/i);
       if (obzorOnly) label = obzorOnly[1].trim();
     }
 
-    if (!label) {
-      linkIndex += 1;
-      label = `Ссылка ${linkIndex}`;
-    }
+    if (!label) label = 'Обзор';
 
-    if (!seen.has(url)) {
-      seen.add(url);
-      links.push({ label, url });
-    }
+    const plainBefore = stripTrailingLabel(segmentBefore, label);
+    if (plainBefore) segments.push({ kind: 'text', text: plainBefore });
+
+    segments.push({ kind: 'link', label, url });
     prevEnd = match.index + raw.length;
   }
 
-  return links;
+  const rest = text.slice(prevEnd);
+  if (rest) segments.push({ kind: 'text', text: rest });
+
+  if (segments.length === 0) return [{ kind: 'text', text: text }];
+  return segments;
+}
+
+export function extractLinks(text: string): { label: string; url: string }[] {
+  return parseCommentSegments(text)
+    .filter((s): s is { kind: 'link'; label: string; url: string } => s.kind === 'link')
+    .map((s) => ({ label: s.label, url: s.url }));
 }
 
 export function cleanComment(text: string): string {

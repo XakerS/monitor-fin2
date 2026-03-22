@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { fetchMonitors } from './services/sheetsParser';
 import { Monitor, ParseResult, Rating, RATING_CONFIG } from './types';
-import { cleanComment, extractLinks } from './utils/commentLinks';
+import { CommentInline } from './components/CommentInline';
 import { ozonSearchUrl, wildberriesSearchUrl, yandexMarketSearchUrl } from './utils/marketplaceUrls';
 import { bestIndicesForRow, type CompareRowId } from './utils/compareHighlights';
 
@@ -52,9 +52,6 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
 }) {
   const [expanded, setExpanded] = useState(false);
   const cfg = RATING_CONFIG[monitor.rating];
-  const links = extractLinks(monitor.comment);
-  const commentText = cleanComment(monitor.comment);
-
   const borderColors: Record<Rating, string> = {
     S: '#d97706', A: '#10b981', B: '#06b6d4', C: '#4b5563',
     D: '#ca8a04', E: '#374151', F: '#dc2626',
@@ -199,43 +196,10 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
                   <span style={{ color: '#d1d5db' }}>~{monitor.minBrightness} нит</span>
                 </div>
               )}
-              {commentText && (
+              {monitor.comment.trim() && (
                 <div>
                   <span style={{ color: '#6b7280' }}>Комментарий: </span>
-                  <p style={{ color: '#d1d5db', marginTop: '4px', whiteSpace: 'pre-line', lineHeight: '1.5' }}>{commentText}</p>
-                </div>
-              )}
-              {links.length > 0 && (
-                <div>
-                  <span style={{ color: '#6b7280' }}>Ссылки из комментария:</span>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '6px' }}>
-                    {links.map((l, i) => (
-                      <a
-                        key={`${l.url}-${i}`}
-                        href={l.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        style={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                          padding: '6px 10px',
-                          borderRadius: '8px',
-                          background: 'rgba(59,130,246,0.12)',
-                          color: '#93c5fd',
-                          border: '1px solid rgba(59,130,246,0.35)',
-                          textDecoration: 'none',
-                          fontSize: '11px',
-                          fontWeight: 500,
-                          maxWidth: '100%',
-                        }}
-                        title={l.url}
-                      >
-                        {l.label}
-                      </a>
-                    ))}
-                  </div>
+                  <CommentInline text={monitor.comment} />
                 </div>
               )}
 

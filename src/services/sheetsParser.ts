@@ -46,7 +46,6 @@ function findRatingColumn(row: string[]): number {
 function extractHyperlinksFromFormula(f: string | undefined): { url: string; label: string }[] {
   if (!f || !/HYPERLINK/i.test(f)) return [];
   const results: { url: string; label: string }[] = [];
-  const seen = new Set<string>();
 
   const patterns = [
     /HYPERLINK\s*\(\s*"([^"]+)"\s*[,;]\s*"([^"]*)"\s*\)/gi,
@@ -59,8 +58,6 @@ function extractHyperlinksFromFormula(f: string | undefined): { url: string; lab
     while ((m = re.exec(f)) !== null) {
       const url = m[1].trim();
       if (url.startsWith('#') || !/^https?:\/\//i.test(url)) continue;
-      if (seen.has(url)) continue;
-      seen.add(url);
       results.push({ url, label: m[2].trim() });
     }
   }
@@ -69,8 +66,8 @@ function extractHyperlinksFromFormula(f: string | undefined): { url: string; lab
   let m: RegExpExecArray | null;
   while ((m = oneArg.exec(f)) !== null) {
     const url = m[1].trim();
-    if (!/^https?:\/\//i.test(url) || seen.has(url)) continue;
-    seen.add(url);
+    if (!/^https?:\/\//i.test(url)) continue;
+    if (results.some((r) => r.url === url)) continue;
     results.push({ url, label: '' });
   }
 
@@ -123,19 +120,24 @@ function getCellTextWithHyperlink(ws: XLSX.WorkSheet, r: number, c: number): str
     base = `${text} ${link}`;
   }
 
+  const appendLabeledUrl = (url: string, labelRaw: string) => {
+    if (!url || base.includes(url)) return;
+    const lab = (labelRaw || 'Обзор').trim() || 'Обзор';
+    if (lab && base.replace(/\s+$/u, '').endsWith(lab)) {
+      base = `${base} ${url}`;
+    } else if (base) {
+      base = `${base}\n${lab} ${url}`;
+    } else {
+      base = `${lab} ${url}`;
+    }
+  };
+
   for (const { url, label } of extractLinksFromCellHtml(cell.h)) {
-    if (!url || base.includes(url)) continue;
-    const lab = label || 'Обзор';
-    if (lab && base.endsWith(lab)) base = `${base} ${url}`;
-    else base = `${base} ${lab} ${url}`.trim();
+    appendLabeledUrl(url, label);
   }
 
   for (const { url, label } of extractHyperlinksFromFormula(cell.f)) {
-    if (!url || base.includes(url)) continue;
-    const lab = label.trim();
-    if (lab && base.endsWith(lab)) base = `${base} ${url}`;
-    else if (lab) base = `${base} ${lab} ${url}`.trim();
-    else base = `${base} ${url}`.trim();
+    appendLabeledUrl(url, label);
   }
 
   return base.trim();
