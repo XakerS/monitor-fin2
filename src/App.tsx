@@ -199,7 +199,7 @@ function MonitorCard({ monitor, compareActive, onToggleCompare }: {
               {monitor.comment.trim() && (
                 <div>
                   <span style={{ color: '#6b7280' }}>Комментарий: </span>
-                  <CommentInline text={monitor.comment} />
+                  <CommentInline text={monitor.comment} html={monitor.commentHtml} />
                 </div>
               )}
 

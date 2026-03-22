@@ -143,6 +143,12 @@ function getCellTextWithHyperlink(ws: XLSX.WorkSheet, r: number, c: number): str
   return base.trim();
 }
 
+function getCellHtml(ws: XLSX.WorkSheet, r: number, c: number): string {
+  const addr = XLSX.utils.encode_cell({ r, c });
+  const cell = ws[addr] as { h?: string } | undefined;
+  return typeof cell?.h === 'string' ? cell.h.trim() : '';
+}
+
 function sheetToRows(ws: XLSX.WorkSheet): string[][] {
   const ref = ws['!ref'];
   if (!ref) return [];
@@ -285,7 +291,10 @@ export async function fetchMonitors(): Promise<ParseResult> {
         continue;
       }
 
-      const comment = ratingCol > 0 ? (row[ratingCol - 1] || '').trim() : '';
+      const commentCol = ratingCol > 0 ? ratingCol - 1 : -1;
+      const sheetRowIndex = headerIndex + 1 + i;
+      const comment = commentCol >= 0 ? getCellTextWithHyperlink(ws, sheetRowIndex, commentCol).trim() : '';
+      const commentHtml = commentCol >= 0 ? getCellHtml(ws, sheetRowIndex, commentCol) : '';
 
       const monitor: Monitor = {
         name,
@@ -305,6 +314,7 @@ export async function fetchMonitors(): Promise<ParseResult> {
         minBrightness: (row[13] || '').trim(),
         maxBrightness: (row[14] || '').trim(),
         comment,
+        commentHtml,
         rating: rating as Rating,
         rowIndex: headerIndex + i + 2,
       };

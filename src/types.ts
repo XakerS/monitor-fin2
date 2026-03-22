@@ -18,6 +18,7 @@ export interface Monitor {
   minBrightness: string;
   maxBrightness: string;
   comment: string;
+  commentHtml?: string;
   rating: Rating;
   rowIndex: number;
 }
