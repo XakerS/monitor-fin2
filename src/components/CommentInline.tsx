@@ -3,6 +3,11 @@ import { parseCommentSegments } from '../utils/commentLinks';
 type Props = {
   text: string;
   html?: string;
+  theme: {
+    textSecondary: string;
+    link: string;
+    linkUnderline: string;
+  };
 };
 
 function parseHtmlSegments(html: string) {
@@ -58,7 +63,7 @@ function parseHtmlSegments(html: string) {
   return segments;
 }
 
-export function CommentInline({ text, html }: Props) {
+export function CommentInline({ text, html, theme }: Props) {
   const htmlSegments = parseHtmlSegments(html ?? '');
   const segments = htmlSegments.length > 0 ? htmlSegments : parseCommentSegments(text);
   if (segments.length === 0) return null;
@@ -66,7 +71,7 @@ export function CommentInline({ text, html }: Props) {
   return (
     <p
       style={{
-        color: '#d1d5db',
+        color: theme.textSecondary,
         marginTop: '4px',
         marginBottom: 0,
         whiteSpace: 'pre-line',
@@ -89,10 +94,10 @@ export function CommentInline({ text, html }: Props) {
             onMouseDown={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             style={{
-              color: '#22d3ee',
+              color: theme.link,
               fontWeight: 600,
               textDecoration: 'underline',
-              textDecorationColor: 'rgba(34,211,238,0.45)',
+              textDecorationColor: theme.linkUnderline,
               textUnderlineOffset: '3px',
               position: 'relative',
               zIndex: 1,
