@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CommentInline } from './components/CommentInline';
 import { fetchMonitors } from './services/sheetsParser';
 import { Monitor, ParseResult, Rating, RATING_CONFIG } from './types';
@@ -65,9 +65,53 @@ type BadgeTone = {
   border: string;
 };
 
+type FilterOption = {
+  value: string;
+  label: string;
+};
+
 const THEME_STORAGE_KEY = 'monitor-finder-theme';
+const RECOMMENDED_RATINGS: Rating[] = ['S', 'A', 'B'];
 
 const ratingOrder: Record<Rating, number> = { S: 0, A: 1, B: 2, C: 3, D: 4, E: 5, F: 6 };
+
+function normalizeMatrixLabel(matrixType: string) {
+  const normalized = matrixType.split('\n')[0].trim().toUpperCase();
+  if (normalized.includes('IPS')) return 'IPS';
+  if (normalized.includes('VA')) return 'VA';
+  if (normalized.includes('TN')) return 'TN';
+  if (normalized.includes('OLED')) return 'OLED';
+  return normalized;
+}
+
+function toggleFilterValue(values: string[], nextValue: string) {
+  return values.includes(nextValue) ? values.filter((value) => value !== nextValue) : [...values, nextValue];
+}
+
+function isSameFilterSet(values: string[], target: string[]) {
+  if (values.length !== target.length) return false;
+  return target.every((value) => values.includes(value));
+}
+
+function matchesRefreshBucket(refreshRate: string, filterValue: string) {
+  const hz = parseInt(refreshRate, 10);
+  if (Number.isNaN(hz)) return filterValue === 'unknown';
+
+  switch (filterValue) {
+    case '60-75':
+      return hz >= 60 && hz <= 75;
+    case '144':
+      return hz >= 100 && hz <= 144;
+    case '165-180':
+      return hz >= 165 && hz <= 180;
+    case '200-280':
+      return hz >= 200 && hz <= 280;
+    case '300+':
+      return hz >= 300;
+    default:
+      return true;
+  }
+}
 
 const themes: Record<ThemeMode, AppTheme> = {
   dark: {
@@ -625,6 +669,192 @@ function MonitorCard({
   );
 }
 
+function MultiSelectFilter({
+  label,
+  values,
+  onChange,
+  options,
+  theme,
+}: {
+  label: string;
+  values: string[];
+  onChange: (values: string[]) => void;
+  options: FilterOption[];
+  theme: AppTheme;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const selectedOptions = options.filter((option) => values.includes(option.value));
+  const triggerLabel =
+    selectedOptions.length === 0
+      ? 'Все'
+      : selectedOptions.length <= 2
+        ? selectedOptions.map((option) => option.label).join(', ')
+        : `Выбрано: ${selectedOptions.length}`;
+
+  useEffect(() => {
+    if (!open) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!containerRef.current?.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleEscape);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [open]);
+
+  return (
+    <div style={{ position: 'relative' }} ref={containerRef}>
+      <label
+        style={{
+          display: 'block',
+          fontSize: '10px',
+          textTransform: 'uppercase',
+          letterSpacing: '0.05em',
+          color: theme.textMuted,
+          marginBottom: '4px',
+        }}
+      >
+        {label}
+      </label>
+      <button
+        type="button"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        style={{
+          width: '100%',
+          padding: '8px 12px',
+          background: theme.inputBackground,
+          border: `1px solid ${theme.inputBorder}`,
+          borderRadius: '8px',
+          color: theme.inputText,
+          fontSize: '13px',
+          cursor: 'pointer',
+          outline: 'none',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          gap: '12px',
+          textAlign: 'left',
+        }}
+      >
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {triggerLabel}
+        </span>
+        <span style={{ color: theme.textMuted, flexShrink: 0 }}>{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            right: 0,
+            zIndex: 20,
+            background: theme.surfaceStrong,
+            border: `1px solid ${theme.inputBorder}`,
+            borderRadius: '10px',
+            overflow: 'hidden',
+            boxShadow: theme.mode === 'dark' ? '0 18px 38px rgba(0,0,0,0.36)' : '0 18px 36px rgba(15,23,42,0.12)',
+            backdropFilter: 'blur(20px)',
+          }}
+        >
+          <div
+            style={{
+              display: 'flex',
+              justifyContent: 'flex-end',
+              padding: '8px 10px',
+              borderBottom: `1px solid ${theme.subtleBorder}`,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => onChange([])}
+              style={{
+                padding: 0,
+                border: 'none',
+                background: 'none',
+                cursor: 'pointer',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: theme.textMuted,
+              }}
+            >
+              Сбросить
+            </button>
+          </div>
+
+          <div style={{ maxHeight: '220px', overflowY: 'auto', padding: '6px' }} role="listbox" aria-multiselectable="true">
+            {options.map((option) => {
+              const checked = values.includes(option.value);
+
+              return (
+                <button
+                  key={option.value}
+                  type="button"
+                  onClick={() => onChange(toggleFilterValue(values, option.value))}
+                  style={{
+                    width: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    gap: '10px',
+                    padding: '9px 10px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    background: checked ? theme.accentSoftStrong : 'transparent',
+                    color: checked ? theme.textPrimary : theme.textSecondary,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span style={{ textAlign: 'left' }}>{option.label}</span>
+                  <span
+                    style={{
+                      width: '16px',
+                      height: '16px',
+                      borderRadius: '4px',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      border: `1px solid ${checked ? theme.accent : theme.inputBorder}`,
+                      background: checked ? theme.accentSoft : 'transparent',
+                      color: checked ? theme.accent : theme.textMuted,
+                      fontSize: '11px',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {checked ? '✓' : ''}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function SelectFilter({
   label,
   value,
@@ -635,7 +865,7 @@ function SelectFilter({
   label: string;
   value: string;
   onChange: (v: string) => void;
-  options: { value: string; label: string }[];
+  options: FilterOption[];
   theme: AppTheme;
 }) {
   return (
@@ -1005,11 +1235,11 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
-  const [resFilter, setResFilter] = useState('all');
-  const [ratingFilter, setRatingFilter] = useState('recommended');
-  const [matrixFilter, setMatrixFilter] = useState('all');
-  const [diagonalFilter, setDiagonalFilter] = useState('all');
-  const [refreshFilter, setRefreshFilter] = useState('all');
+  const [resFilter, setResFilter] = useState<string[]>([]);
+  const [ratingFilter, setRatingFilter] = useState<string[]>(RECOMMENDED_RATINGS);
+  const [matrixFilter, setMatrixFilter] = useState<string[]>([]);
+  const [diagonalFilter, setDiagonalFilter] = useState<string[]>([]);
+  const [refreshFilter, setRefreshFilter] = useState<string[]>([]);
   const [sortBy, setSortBy] = useState('rating');
   const [showErrors, setShowErrors] = useState(false);
   const [showLastMonitor, setShowLastMonitor] = useState(false);
@@ -1076,14 +1306,7 @@ export default function App() {
     const diagonals = [...new Set(data.monitors.map((monitor) => monitor.diagonal))]
       .filter(Boolean)
       .sort((a, b) => parseFloat(a) - parseFloat(b));
-    const matrices = [...new Set(data.monitors.map((monitor) => {
-      const matrixType = (monitor.matrixType || '').split('\n')[0].trim().toUpperCase();
-      if (matrixType.includes('IPS')) return 'IPS';
-      if (matrixType.includes('VA')) return 'VA';
-      if (matrixType.includes('TN')) return 'TN';
-      if (matrixType.includes('OLED')) return 'OLED';
-      return matrixType;
-    }))]
+    const matrices = [...new Set(data.monitors.map((monitor) => normalizeMatrixLabel(monitor.matrixType || '')))]
       .filter((value) => value && value !== '?' && value !== '—')
       .sort();
 
@@ -1105,44 +1328,24 @@ export default function App() {
       );
     }
 
-    if (resFilter !== 'all') {
-      result = result.filter((monitor) => monitor.resolutionCategory === resFilter);
+    if (resFilter.length > 0) {
+      result = result.filter((monitor) => resFilter.includes(monitor.resolutionCategory));
     }
 
-    if (ratingFilter === 'recommended') {
-      result = result.filter((monitor) => ['S', 'A', 'B'].includes(monitor.rating));
-    } else if (ratingFilter !== 'all') {
-      result = result.filter((monitor) => monitor.rating === ratingFilter);
+    if (ratingFilter.length > 0) {
+      result = result.filter((monitor) => ratingFilter.includes(monitor.rating));
     }
 
-    if (matrixFilter !== 'all') {
-      result = result.filter((monitor) => (monitor.matrixType || '').toUpperCase().includes(matrixFilter));
+    if (matrixFilter.length > 0) {
+      result = result.filter((monitor) => matrixFilter.includes(normalizeMatrixLabel(monitor.matrixType || '')));
     }
 
-    if (diagonalFilter !== 'all') {
-      result = result.filter((monitor) => monitor.diagonal === diagonalFilter);
+    if (diagonalFilter.length > 0) {
+      result = result.filter((monitor) => diagonalFilter.includes(monitor.diagonal));
     }
 
-    if (refreshFilter !== 'all') {
-      result = result.filter((monitor) => {
-        const hz = parseInt(monitor.refreshRate, 10);
-        if (Number.isNaN(hz)) return refreshFilter === 'unknown';
-
-        switch (refreshFilter) {
-          case '60-75':
-            return hz >= 60 && hz <= 75;
-          case '144':
-            return hz >= 100 && hz <= 144;
-          case '165-180':
-            return hz >= 165 && hz <= 180;
-          case '200-280':
-            return hz >= 200 && hz <= 280;
-          case '300+':
-            return hz >= 300;
-          default:
-            return true;
-        }
-      });
+    if (refreshFilter.length > 0) {
+      result = result.filter((monitor) => refreshFilter.some((filterValue) => matchesRefreshBucket(monitor.refreshRate, filterValue)));
     }
 
     result.sort((a, b) => {
@@ -1183,6 +1386,8 @@ export default function App() {
     }
     return counts as Record<Rating, number>;
   }, [data]);
+
+  const recommendedActive = isSameFilterSet(ratingFilter, RECOMMENDED_RATINGS);
 
   const themeButtonLabel = themeMode === 'dark' ? '☀ Светлая тема' : '🌙 Темная тема';
 
@@ -1480,18 +1685,18 @@ export default function App() {
           <div style={{ marginBottom: '24px', display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
             <button
               type="button"
-              onClick={() => setRatingFilter((prev) => (prev === 'recommended' ? 'all' : 'recommended'))}
+              onClick={() => setRatingFilter((prev) => (isSameFilterSet(prev, RECOMMENDED_RATINGS) ? [] : [...RECOMMENDED_RATINGS]))}
               style={{
                 padding: '4px 12px',
                 borderRadius: '8px',
                 fontSize: '12px',
                 fontWeight: 600,
                 border:
-                  ratingFilter === 'recommended'
+                  recommendedActive
                     ? `1px solid ${theme.accentBorder}`
                     : `1px solid ${theme.buttonSubtleBorder}`,
-                background: ratingFilter === 'recommended' ? theme.accentSoftStrong : theme.buttonSubtleBackground,
-                color: ratingFilter === 'recommended' ? theme.accent : theme.buttonSubtleText,
+                background: recommendedActive ? theme.accentSoftStrong : theme.buttonSubtleBackground,
+                color: recommendedActive ? theme.accent : theme.buttonSubtleText,
                 cursor: 'pointer',
               }}
             >
@@ -1502,14 +1707,14 @@ export default function App() {
               if (count === 0) return null;
 
               const tone = ratingTones[themeMode][rating];
-              const isActive = ratingFilter === rating;
+              const isActive = ratingFilter.includes(rating);
               const config = RATING_CONFIG[rating];
 
               return (
                 <button
                   key={rating}
                   type="button"
-                  onClick={() => setRatingFilter(isActive ? 'all' : rating)}
+                  onClick={() => setRatingFilter((prev) => toggleFilterValue(prev, rating))}
                   style={{
                     padding: '4px 10px',
                     borderRadius: '8px',
@@ -1565,24 +1770,19 @@ export default function App() {
               gap: '12px',
             }}
           >
-            <SelectFilter
+            <MultiSelectFilter
               label="Разрешение"
-              value={resFilter}
+              values={resFilter}
               onChange={setResFilter}
               theme={theme}
-              options={[
-                { value: 'all', label: 'Все' },
-                ...filterOptions.resolutions.map((resolution) => ({ value: resolution, label: resolution })),
-              ]}
+              options={filterOptions.resolutions.map((resolution) => ({ value: resolution, label: resolution }))}
             />
-            <SelectFilter
+            <MultiSelectFilter
               label="Оценка"
-              value={ratingFilter}
+              values={ratingFilter}
               onChange={setRatingFilter}
               theme={theme}
               options={[
-                { value: 'recommended', label: '⭐ Рекомендуемые (S/A/B)' },
-                { value: 'all', label: 'Все оценки' },
                 { value: 'S', label: '👑 S-Tier' },
                 { value: 'A', label: '✅ Лучший выбор' },
                 { value: 'B', label: '👍 Хороший вариант' },
@@ -1592,33 +1792,26 @@ export default function App() {
                 { value: 'F', label: '🚫 Не рекомендуется' },
               ]}
             />
-            <SelectFilter
+            <MultiSelectFilter
               label="Матрица"
-              value={matrixFilter}
+              values={matrixFilter}
               onChange={setMatrixFilter}
               theme={theme}
-              options={[
-                { value: 'all', label: 'Все' },
-                ...filterOptions.matrices.map((matrix) => ({ value: matrix, label: matrix })),
-              ]}
+              options={filterOptions.matrices.map((matrix) => ({ value: matrix, label: matrix }))}
             />
-            <SelectFilter
+            <MultiSelectFilter
               label="Диагональ"
-              value={diagonalFilter}
+              values={diagonalFilter}
               onChange={setDiagonalFilter}
               theme={theme}
-              options={[
-                { value: 'all', label: 'Все' },
-                ...filterOptions.diagonals.map((diagonal) => ({ value: diagonal, label: `${diagonal}"` })),
-              ]}
+              options={filterOptions.diagonals.map((diagonal) => ({ value: diagonal, label: `${diagonal}"` }))}
             />
-            <SelectFilter
+            <MultiSelectFilter
               label="Частота"
-              value={refreshFilter}
+              values={refreshFilter}
               onChange={setRefreshFilter}
               theme={theme}
               options={[
-                { value: 'all', label: 'Все' },
                 { value: '60-75', label: '60–75 Гц' },
                 { value: '144', label: '100–144 Гц' },
                 { value: '165-180', label: '165–180 Гц' },
