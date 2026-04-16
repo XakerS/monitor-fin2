@@ -680,10 +680,14 @@ function SelectFilter({
 function ComparePanel({
   monitors,
   onClear,
+  collapsed,
+  onToggleCollapsed,
   theme,
 }: {
   monitors: Monitor[];
   onClear: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
   theme: AppTheme;
 }) {
   if (monitors.length < 2) return null;
@@ -738,20 +742,28 @@ function ComparePanel({
     <div
       style={{
         position: 'fixed',
-        bottom: 0,
-        left: 0,
-        right: 0,
         zIndex: 100,
-        maxHeight: 'min(72vh, 580px)',
+        bottom: collapsed ? '16px' : 0,
+        right: collapsed ? '16px' : 0,
+        left: collapsed ? 'auto' : 0,
+        width: collapsed ? 'min(320px, calc(100vw - 32px))' : '100%',
+        maxHeight: collapsed ? 'none' : 'min(72vh, 580px)',
         background: theme.comparePanelBackground,
-        borderTop: `1px solid ${theme.comparePanelBorder}`,
+        border: collapsed ? `1px solid ${theme.comparePanelBorder}` : undefined,
+        borderTop: collapsed ? undefined : `1px solid ${theme.comparePanelBorder}`,
+        borderRadius: collapsed ? '16px' : 0,
         boxShadow:
           theme.mode === 'dark'
-            ? '0 -12px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(6,182,212,0.12)'
-            : '0 -12px 40px rgba(15,23,42,0.12), 0 0 0 1px rgba(148,163,184,0.14)',
+            ? collapsed
+              ? '0 12px 32px rgba(0,0,0,0.45), 0 0 0 1px rgba(6,182,212,0.12)'
+              : '0 -12px 48px rgba(0,0,0,0.55), 0 0 0 1px rgba(6,182,212,0.12)'
+            : collapsed
+              ? '0 12px 28px rgba(15,23,42,0.14), 0 0 0 1px rgba(148,163,184,0.14)'
+              : '0 -12px 40px rgba(15,23,42,0.12), 0 0 0 1px rgba(148,163,184,0.14)',
         display: 'flex',
         flexDirection: 'column',
         backdropFilter: 'blur(12px)',
+        overflow: 'hidden',
       }}
     >
       <div
@@ -771,29 +783,84 @@ function ComparePanel({
             Сравнение
           </span>
           <span style={{ fontSize: '13px', color: theme.textMuted, marginLeft: '8px' }}>{monitors.length} моделей</span>
-          <p style={{ margin: '4px 0 0', fontSize: '11px', color: theme.textMuted }}>
-            Подсветка: лучшее значение в строке (оценка S→F, Гц и % выше, GtG ниже)
-          </p>
+          {!collapsed && (
+            <p style={{ margin: '4px 0 0', fontSize: '11px', color: theme.textMuted }}>
+              Подсветка: лучшее значение в строке (оценка S→F, Гц и % выше, GtG ниже)
+            </p>
+          )}
         </div>
-        <button
-          type="button"
-          onClick={onClear}
-          style={{
-            padding: '8px 14px',
-            fontSize: '12px',
-            fontWeight: 600,
-            borderRadius: '10px',
-            border: `1px solid ${theme.mode === 'dark' ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.24)'}`,
-            background: theme.mode === 'dark' ? 'rgba(239,68,68,0.12)' : 'rgba(254,226,226,0.9)',
-            color: theme.mode === 'dark' ? '#fca5a5' : '#b91c1c',
-            cursor: 'pointer',
-          }}
-        >
-          Очистить
-        </button>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            aria-label={collapsed ? 'Развернуть панель сравнения' : 'Свернуть панель сравнения'}
+            title={collapsed ? 'Развернуть' : 'Свернуть'}
+            style={{
+              width: '36px',
+              height: '36px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '10px',
+              border: `1px solid ${theme.buttonSubtleBorder}`,
+              background: theme.buttonSubtleBackground,
+              color: theme.textSecondary,
+              cursor: 'pointer',
+              fontSize: '16px',
+              fontWeight: 700,
+            }}
+          >
+            {collapsed ? '↗' : '▾'}
+          </button>
+          <button
+            type="button"
+            onClick={onClear}
+            style={{
+              padding: '8px 14px',
+              fontSize: '12px',
+              fontWeight: 600,
+              borderRadius: '10px',
+              border: `1px solid ${theme.mode === 'dark' ? 'rgba(239,68,68,0.4)' : 'rgba(220,38,38,0.24)'}`,
+              background: theme.mode === 'dark' ? 'rgba(239,68,68,0.12)' : 'rgba(254,226,226,0.9)',
+              color: theme.mode === 'dark' ? '#fca5a5' : '#b91c1c',
+              cursor: 'pointer',
+            }}
+          >
+            Очистить
+          </button>
+        </div>
       </div>
 
-      <div style={{ overflow: 'auto', padding: '14px 16px 24px' }}>
+      {collapsed ? (
+        <div
+          style={{
+            padding: '0 18px 16px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '8px',
+          }}
+        >
+          <span style={{ fontSize: '12px', color: theme.textMuted }}>В сравнении сейчас:</span>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            {monitors.map((monitor) => (
+              <span
+                key={monitor.rowIndex}
+                style={{
+                  fontSize: '12px',
+                  lineHeight: 1.35,
+                  color: theme.textSecondary,
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                }}
+              >
+                {monitor.name}
+              </span>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div style={{ overflow: 'auto', padding: '14px 16px 24px' }}>
         <table
           style={{
             width: '100%',
@@ -927,6 +994,7 @@ function ComparePanel({
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
@@ -946,6 +1014,7 @@ export default function App() {
   const [showErrors, setShowErrors] = useState(false);
   const [showLastMonitor, setShowLastMonitor] = useState(false);
   const [compareRowIndices, setCompareRowIndices] = useState<number[]>([]);
+  const [compareCollapsed, setCompareCollapsed] = useState(false);
 
   const theme = themes[themeMode];
   const socialLinks = externalLinkTones[themeMode];
@@ -966,6 +1035,7 @@ export default function App() {
       const result = await fetchMonitors();
       setData(result);
       setCompareRowIndices([]);
+      setCompareCollapsed(false);
 
       if (result.monitors.length === 0 && result.errors.length > 0) {
         setError(result.errors[0]);
@@ -1099,6 +1169,12 @@ export default function App() {
     return compareRowIndices.map((rowIndex) => byRow.get(rowIndex)).filter((monitor): monitor is Monitor => monitor != null);
   }, [compareRowIndices, data]);
 
+  useEffect(() => {
+    if (compareMonitors.length < 2) {
+      setCompareCollapsed(false);
+    }
+  }, [compareMonitors.length]);
+
   const ratingCounts = useMemo(() => {
     if (!data) return {} as Record<Rating, number>;
     const counts: Record<string, number> = {};
@@ -1210,7 +1286,7 @@ export default function App() {
           maxWidth: '1200px',
           margin: '0 auto',
           padding: '24px 16px',
-          paddingBottom: compareMonitors.length >= 2 ? 'min(35vh, 280px)' : '24px',
+          paddingBottom: compareMonitors.length >= 2 && !compareCollapsed ? 'min(35vh, 280px)' : '24px',
         }}
       >
         <div
@@ -1665,7 +1741,13 @@ export default function App() {
       </main>
 
       {compareMonitors.length >= 2 && (
-        <ComparePanel monitors={compareMonitors} onClear={() => setCompareRowIndices([])} theme={theme} />
+        <ComparePanel
+          monitors={compareMonitors}
+          onClear={() => setCompareRowIndices([])}
+          collapsed={compareCollapsed}
+          onToggleCollapsed={() => setCompareCollapsed((prev) => !prev)}
+          theme={theme}
+        />
       )}
 
       <footer style={{ borderTop: `1px solid ${theme.subtleBorder}`, marginTop: '64px', padding: '24px 0' }}>
