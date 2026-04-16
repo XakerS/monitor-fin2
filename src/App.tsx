@@ -910,12 +910,14 @@ function SelectFilter({
 function ComparePanel({
   monitors,
   onClear,
+  onRemove,
   collapsed,
   onToggleCollapsed,
   theme,
 }: {
   monitors: Monitor[];
   onClear: () => void;
+  onRemove: (rowIndex: number) => void;
   collapsed: boolean;
   onToggleCollapsed: () => void;
   theme: AppTheme;
@@ -1138,28 +1140,56 @@ function ComparePanel({
                       borderRadius: '10px 10px 0 0',
                     }}
                   >
-                    <span
-                      style={{
-                        display: 'block',
-                        lineHeight: 1.35,
-                        whiteSpace: 'pre-line',
-                        color: theme.textPrimary,
-                        fontSize: '12px',
-                      }}
-                    >
-                      {monitor.name}
-                    </span>
-                    <span
-                      style={{
-                        display: 'inline-block',
-                        marginTop: '6px',
-                        fontSize: '10px',
-                        fontWeight: 600,
-                        color: tones.border,
-                      }}
-                    >
-                      {RATING_CONFIG[monitor.rating].emoji} {RATING_CONFIG[monitor.rating].label}
-                    </span>
+                    <div style={{ position: 'relative', paddingRight: '28px' }}>
+                      <button
+                        type="button"
+                        onClick={() => onRemove(monitor.rowIndex)}
+                        aria-label={`Удалить ${monitor.name} из сравнения`}
+                        title="Удалить из сравнения"
+                        style={{
+                          position: 'absolute',
+                          top: 0,
+                          right: 0,
+                          width: '22px',
+                          height: '22px',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '999px',
+                          border: `1px solid ${theme.buttonSubtleBorder}`,
+                          background: theme.buttonSubtleBackground,
+                          color: theme.textMuted,
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          lineHeight: 1,
+                          padding: 0,
+                        }}
+                      >
+                        ×
+                      </button>
+                      <span
+                        style={{
+                          display: 'block',
+                          lineHeight: 1.35,
+                          whiteSpace: 'pre-line',
+                          color: theme.textPrimary,
+                          fontSize: '12px',
+                        }}
+                      >
+                        {monitor.name}
+                      </span>
+                      <span
+                        style={{
+                          display: 'inline-block',
+                          marginTop: '6px',
+                          fontSize: '10px',
+                          fontWeight: 600,
+                          color: tones.border,
+                        }}
+                      >
+                        {RATING_CONFIG[monitor.rating].emoji} {RATING_CONFIG[monitor.rating].label}
+                      </span>
+                    </div>
                   </th>
                 );
               })}
@@ -1255,6 +1285,10 @@ export default function App() {
       if (prev.length >= 4) return prev;
       return [...prev, rowIndex];
     });
+  }, []);
+
+  const removeFromCompare = useCallback((rowIndex: number) => {
+    setCompareRowIndices((prev) => prev.filter((row) => row !== rowIndex));
   }, []);
 
   const loadData = useCallback(async () => {
@@ -1937,6 +1971,7 @@ export default function App() {
         <ComparePanel
           monitors={compareMonitors}
           onClear={() => setCompareRowIndices([])}
+          onRemove={removeFromCompare}
           collapsed={compareCollapsed}
           onToggleCollapsed={() => setCompareCollapsed((prev) => !prev)}
           theme={theme}
